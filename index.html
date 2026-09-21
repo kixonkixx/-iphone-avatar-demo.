@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>iPhone Full-Body Tracking Demo</title>
+<style>
+html,body{margin:0;background:#090909;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+body{min-height:100vh;display:flex;justify-content:center}
+main{width:min(900px,100%);padding:20px;box-sizing:border-box}
+h1{font-size:24px}.stage{position:relative;background:#000;border-radius:16px;overflow:hidden}
+video{display:block;width:100%;height:auto;transform:scaleX(-1)}
+canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
+button{margin-top:16px;width:100%;padding:14px;border:0;border-radius:12px;font-size:17px;font-weight:600}
+#status{opacity:.8}
+</style>
+</head>
+<body>
+<main>
+<h1>Full-Body Tracking — iPhone Demo</h1>
+<p id="status">Loading…</p>
+<div class="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="canvas"></canvas>
+</div>
+<button id="start">Start camera</button>
+</main>
+
+<script type="module">
+import {PoseLandmarker, FilesetResolver, DrawingUtils}
+from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm";
+
+const video=document.getElementById("video");
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+const status=document.getElementById("status");
+let detector,lastTime=-1;
+
+async function init(){
+  status.textContent="Loading body-tracking model…";
+  const vision=await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
+  );
+  detector=await PoseLandmarker.createFromOptions(vision,{
+    baseOptions:{
+      modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
+      delegate:"GPU"
+    },
+    runningMode:"VIDEO",
+    numPoses:1
+  });
+  status.textContent="Ready. Tap Start camera.";
+}
+
+async function start(){
+  const stream=await navigator.mediaDevices.getUserMedia({
+    video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},
+    audio:false
+  });
+  video.srcObject=stream;
+  await video.play();
+  canvas.width=video.videoWidth;
+  canvas.height=video.videoHeight;
+  status.textContent="Tracking your body…";
+  requestAnimationFrame(loop);
+}
+
+function loop(){
+  if(video.readyState>=2 && video.currentTime!==lastTime){
+    lastTime=video.currentTime;
+    const r=detector.detectForVideo(video,performance.now());
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    if(r.landmarks?.length){
+      const d=new DrawingUtils(ctx);
+      for(const l of r.landmarks){
+        d.drawConnectors(l,PoseLandmarker.POSE_CONNECTIONS);
+        d.drawLandmarks(l,{radius:4});
+      }
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+document.getElementById("start").onclick=()=>start().catch(e=>{
+  console.error(e); status.textContent="Camera error: "+e.message;
+});
+init().catch(e=>{console.error(e);status.textContent="Model error: "+e.message});
+</script>
+</body>
+</html>
